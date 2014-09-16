@@ -70,8 +70,6 @@ struct xbee_tx_header {
 	u8 api_id;
 	u8 frame_id;
 	u64 address;
-	u16 net_address;
-	u8 radius;
 	u8 options;
 } __attribute__((packed));
 

@@ -281,7 +281,10 @@ static void xbee_hw_tx(char *frame, int len, struct net_device *dev)
 		//printk(KERN_ALERT "Setting DO_WRITE_WAKEUP\n");
 		main_tty->flags |= (1 << TTY_DO_WRITE_WAKEUP);
 		
-		//printk(KERN_ALERT "Writing the data to tty...\n");
+		printk(KERN_ALERT "Writing the data to tty...\n");
+
+		print_hex_dump(KERN_ALERT, "", DUMP_PREFIX_OFFSET, 16, 1, frame, len, 0);
+	
 		actual = main_tty->driver->ops->write(main_tty, frame, len);
 	 	
 		if(actual != len) { 
@@ -335,10 +338,9 @@ int xbee_tx(struct sk_buff *skb, struct net_device *dev)
 	
 	struct xbee_tx_header header = {
 		.length = 0x00,
-		.api_id = 0x10,
-		.frame_id = 0x01,
-		.radius = 0x00,
-		.options = 0x00
+		.api_id = 0x00,
+		.frame_id = 0x02,
+		.options = 0x04
 	};
 		
 	if(main_tty == NULL) {
@@ -346,41 +348,25 @@ int xbee_tx(struct sk_buff *skb, struct net_device *dev)
 		return 0;
 	}
 		
-	//printk(KERN_ALERT "[NET tx called, %d bytes in sk_buff]\n", skb->len);
+	printk(KERN_ALERT "[NET tx called, %d bytes in sk_buff]\n", skb->len);
     
-    /* If this is a non-UDP/IP packet, drop it
-       Also needs to have the XBee HW address in first 8 bytes */
-	if(skb->len < (sizeof(struct iphdr) + sizeof(struct udphdr) + 8)) {
-        printk(KERN_ALERT "ERROR: Packet is too short to be TURK protocol!\n");
-		return 0;
-    }
-	
-	header.address = cpu_to_be64(*((u64*)(skb->data + PACKET_ADDR_OFFSET)));
-	header.net_address = cpu_to_be16(0xFFFE);
-    header.length = cpu_to_be16(skb->len - PACKET_DATA_OFFSET + 6);
-    datalen = skb->len - PACKET_ADDR_OFFSET - 8;
+	header.address = cpu_to_be64(0x000000000000FFFF); // So far broadcast
+    	header.length = cpu_to_be16(skb->len + 10);
+    	datalen = skb->len;
 
 	// Allocate buffer to hold entire serial frame, including start byte and checksum
 	frame = kmalloc(sizeof(struct xbee_tx_header) + (2*datalen) + 2, GFP_KERNEL);
 
 	/* Assemble the frame */
-    /* Escaping the XBee header */
-    //printk(KERN_ALERT "Adding XBee header- length is %u\n", sizeof(header) + 1);
-	framelen = 1 + escape_into((frame + 1), &header, sizeof(header));
     
-    /* Escaping the UDP header */
-    // First fix the length field - the packet is now 8 bytes shorter
-    udp_header = (struct udphdr *)(skb->data + PACKET_DATA_OFFSET);
-    udp_header->len = cpu_to_be16(be16_to_cpu(udp_header->len) - 8);
+	/* Escaping the XBee header */
+    	printk(KERN_ALERT "Adding XBee header- length is %u\n", sizeof(header) + 1);
+	framelen = escape_into((frame + 1), &header, sizeof(header));
+    
+    	printk(KERN_ALERT "Adding data - length is %u\n", datalen);
+	framelen += escape_into((frame + framelen + 1), (skb->data), datalen);
 
-    //printk(KERN_ALERT "Adding UDP header - length is %u\n", sizeof(struct udphdr));
-	framelen += escape_into((frame + framelen), (skb->data + PACKET_DATA_OFFSET), sizeof(struct udphdr));
-	
-    /* Escaping the data (not including the hardware address */
-    //printk(KERN_ALERT "Adding data - length is %u\n", datalen);
-	framelen += escape_into((frame + framelen), (skb->data + PACKET_ADDR_OFFSET + 8), datalen);
-
-	framelen++;
+	framelen++; // Escape char at the beginning
 	
 	/* save the timestamp */
 	dev->trans_start = jiffies; 
@@ -771,7 +757,7 @@ static const struct net_device_ops xbee_netdev_ops = {
 	//.get_stats		= xbee_stats,
 };
 
-
+// struct ieee802154_mac_cb *cb = mac_cb_init(skb);
 
 module_init(xbee_init_module);
 module_exit(xbee_cleanup);

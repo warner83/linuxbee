@@ -27,6 +27,8 @@ int pool_size = 8;
 #define XBEE_SENSOR_READ_INDICATOR 			0X94
 #define NODE_IDENTIFICATION_INDICATOR 			0X95
 
+#define IEEE802154_RECEIVE_PACKET                           0X80
+
 //Transmit Status
 #define TRANSMIT_SUCCESS 0x00
 #define TRANSMIT_CCA_FAILURE 0x02

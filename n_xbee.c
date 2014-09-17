@@ -157,9 +157,15 @@ void xbee_receive_packet(struct net_device *dev, unsigned char *data, int len)
 	
 	struct xbee_priv *priv = netdev_priv(dev);
 
-//	printk(KERN_ALERT "[XBEE] receive_packet called ]\n");
+	printk(KERN_ALERT "[XBEE] receive_packet called ]\n");
 
 	switch(*data) {
+	
+		case IEEE802154_RECEIVE_PACKET:
+			printk(KERN_ALERT "[XBEE] 802154 packet received \n");
+			xbee_rx(dev, (data + 11), len - 11);
+                        goto out;
+	
 		case ZIGBEE_RECEIVE_PACKET:
 			printk(KERN_ALERT "[XBEE] Zigbee Receive Packet Frame received\n");
 			if(len<13) {
@@ -586,7 +592,7 @@ static void	n_xbee_receive_buf(struct tty_struct *tty, const unsigned char *cp, 
 	struct xbee_priv *priv = netdev_priv(xbee_dev);
 	unsigned char checksum;
 	
-	printk(KERN_ALERT "[XBEE] RECEIVE_BUF CALLED  %d chars received\n", count);
+	//printk(KERN_ALERT "[XBEE] RECEIVE_BUF CALLED  %d chars received\n", count);
 
 	while(count--) {
 		
@@ -595,10 +601,13 @@ static void	n_xbee_receive_buf(struct tty_struct *tty, const unsigned char *cp, 
 		//Escape characters after 0x7D byte
 		if(temp == 0x7D) {
 			temp = (*cp++) ^ 0x20;
+			printk(KERN_ALERT "[XBEE] ESCAPED : %02X\n", temp );
+			//count--; // Escaped data does not count??
 		}
 		
 		//Start a new frame if 0x7E received, even if we seem to be in the middle of one
 		if(temp == 0x7E) {
+			printk(KERN_ALERT "[XBEE] INIT FRAME : %02X\n", temp );
 			priv->frame_status = FRAME_LEN_HIGH;
 			priv->frame_len = 0;
 			priv->rcount = 0;
@@ -608,17 +617,19 @@ static void	n_xbee_receive_buf(struct tty_struct *tty, const unsigned char *cp, 
 		
 		switch(priv->frame_status) {
 
-            //FIXME: All the Xbee packets seem to have two extra bytes on the end. why...?
+            		//FIXME: All the Xbee packets seem to have two extra bytes on the end. why...?
 			case UNFRAMED:
 				//printk(KERN_ALERT "Unframed data received: 0x%x\n", temp);
 				break;
 				
 			case FRAME_LEN_HIGH:
+				printk(KERN_ALERT "[XBEE] LEN HIGH : %02X\n", temp );
 				priv->frame_len = (temp) << 8;
 				priv->frame_status = FRAME_LEN_LOW;
 				break;
 				
 			case FRAME_LEN_LOW:
+				printk(KERN_ALERT "[XBEE] LEN LOW : %02X\n", temp );
 				priv->frame_len |= (temp);
 				priv->frame_status = FRAME_DATA;
 				priv->rcount = 0;
@@ -629,7 +640,7 @@ static void	n_xbee_receive_buf(struct tty_struct *tty, const unsigned char *cp, 
 				priv->rbuff[priv->rcount++] = (temp);
 				
 				//Is the frame done?
-				if(priv->rcount == (priv->frame_len)) {
+				if(priv->rcount == (priv->frame_len )) {
 					priv->frame_status = FRAME_CHECKSUM;
 				} 
 				//Is the frame FUBAR?
@@ -642,10 +653,14 @@ static void	n_xbee_receive_buf(struct tty_struct *tty, const unsigned char *cp, 
 				
 			case FRAME_CHECKSUM:
 				checksum = temp;
-				if(checksum_validate(priv->rbuff, priv->frame_len, checksum)) {
+				
+				printk(KERN_ALERT "[XBEE] Frame checksum : %02X\n", checksum);
+				print_hex_dump(KERN_ALERT, "", DUMP_PREFIX_OFFSET, 16, 1, priv->rbuff, priv->frame_len, 0);
+		
+				if(checksum_validate(priv->rbuff, priv->frame_len , checksum)) {
 					
 					//Hand off to xbee_receive_packet for networking/packet ID
-					xbee_receive_packet(xbee_dev, priv->rbuff, priv->frame_len);
+					xbee_receive_packet(xbee_dev, priv->rbuff, priv->frame_len );
 				} else {
 					printk(KERN_ALERT "[XBEE] CHECKSUM FAIL : %lu errors\n", priv->stats.rx_dropped++);
 				}

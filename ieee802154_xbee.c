@@ -59,13 +59,9 @@ static int escape_into(char *dest, const void *srcarray, int len);
 
 #include "n_xbee.h"
 
-struct fakehard_priv {
-	struct wpan_phy *phy;
-};
-
 static struct wpan_phy *fake_to_phy(const struct net_device *dev)
 {
-	struct fakehard_priv *priv = netdev_priv(dev);
+	struct xbee_priv *priv = netdev_priv(dev);
 	return priv->phy;
 }
 
@@ -362,15 +358,10 @@ static void xbee_hw_tx(char *frame, int len, struct net_device *dev)
 static netdev_tx_t ieee802154_fake_xmit(struct sk_buff *skb,
 					      struct net_device *dev)
 {
-	dev->stats.tx_packets++;
-	dev->stats.tx_bytes += skb->len;
-
-	/* FIXME: do hardware work here ... */
-
+	struct ieee802154_mac_cb* cb;
 
 	int framelen, datalen;
 	char *frame;
-    struct udphdr *udp_header;
 	
 	struct xbee_priv *priv = netdev_priv(dev);
 	
@@ -380,14 +371,21 @@ static netdev_tx_t ieee802154_fake_xmit(struct sk_buff *skb,
 		.frame_id = 0x02,
 		.options = 0x04
 	};
+
+        dev->stats.tx_packets++;
+        dev->stats.tx_bytes += skb->len;
+
 		
 	if(main_tty == NULL) {
 		printk(KERN_ALERT "No tty attached!\nMake sure ldisc_daemon is running\n");
 		return 0;
 	}
 		
-	printk(KERN_ALERT "[NET tx called, %d bytes in sk_buff]\n", skb->len);
-    
+	printk(KERN_ALERT "[NET tx called, %d bytes in sk_buff, pkt type %hu, protocol %hu]\n", skb->len, skb->pkt_type, skb->protocol);
+   
+	cb = mac_cb(skb);	
+	// TODO use cb to set dst address
+ 
 	header.address = cpu_to_be64(0x000000000000FFFF); // So far broadcast
     	header.length = cpu_to_be16(skb->len + 10);
     	datalen = skb->len;
@@ -398,7 +396,7 @@ static netdev_tx_t ieee802154_fake_xmit(struct sk_buff *skb,
 	/* Assemble the frame */
     
 	/* Escaping the XBee header */
-    	printk(KERN_ALERT "Adding XBee header- length is %u\n", sizeof(header) + 1);
+    	printk(KERN_ALERT "Adding XBee header- length is %lu\n", sizeof(header) + 1);
 	framelen = escape_into((frame + 1), &header, sizeof(header));
     
     	printk(KERN_ALERT "Adding data - length is %u\n", datalen);
@@ -438,14 +436,15 @@ static int escape_into(char *dest, const void *srcarray, int len) {
 	
 	for(i=0; i<len; i++) {
 		char unesc = *(src + i);
-		if( unesc == 0x7D || unesc == 0x7E || unesc == 0x11 || unesc == 0x13) {
+		// We support API mode 1 (escape characters is for API 2, if we want to enable mode 2 we need to implement escape management at RX)
+		/*if( unesc == 0x7D || unesc == 0x7E || unesc == 0x11 || unesc == 0x13) {
 			dest[j] = 0x7D;
 			dest[j+1] = unesc ^ 0x20;
 			j+=2;
-		} else {
+		} else {*/
 			dest[j] = unesc;
 			j++;
-		}	
+		//}	
 	}
 	return j;
 }
@@ -500,6 +499,8 @@ static void ieee802154_fake_destruct(struct net_device *dev)
 
 static void ieee802154_fake_setup(struct net_device *dev)
 {
+	struct xbee_priv *priv;
+	
 	dev->addr_len		= IEEE802154_ADDR_LEN;
 	memset(dev->broadcast, 0xff, IEEE802154_ADDR_LEN);
 	dev->features		= NETIF_F_HW_CSUM;
@@ -510,20 +511,29 @@ static void ieee802154_fake_setup(struct net_device *dev)
 	dev->flags		= IFF_NOARP | IFF_BROADCAST;
 	dev->watchdog_timeo	= 0;
 	dev->destructor		= ieee802154_fake_destruct;
+	
+    /*
+        * Then, initialize the priv field. This encloses the statistics
+        * and a few private fields.
+    */
+    priv = netdev_priv(dev);
+    memset(priv, 0, sizeof(struct xbee_priv));
+    spin_lock_init(&priv->lock);
 }
 
 
 static int ieee802154fake_probe(struct platform_device *pdev)
 {
 	struct net_device *dev;
-	struct fakehard_priv *priv;
+	struct xbee_priv *priv;
 	struct wpan_phy *phy = wpan_phy_alloc(0);
 	int err;
 
 	if (!phy)
 		return -ENOMEM;
 
-	dev = alloc_netdev(sizeof(struct fakehard_priv), "hardwpan%d", ieee802154_fake_setup);
+	dev = alloc_netdev(sizeof(struct xbee_priv), "hardwpan%d", ieee802154_fake_setup);
+
 	if (!dev) {
 		wpan_phy_free(phy);
 		return -ENOMEM;
@@ -554,6 +564,13 @@ static int ieee802154fake_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, dev);
 
+	priv->rbuff = kmalloc(XBEE_MAXFRAME, GFP_KERNEL);
+        priv->rcount = 0;
+        priv->frame_status = UNFRAMED;
+        priv->frame_len = 0;
+
+	xbee_dev = dev; // This should be removed in a future!
+
 	err = wpan_phy_register(phy);
 	if (err)
 		goto out;
@@ -573,6 +590,10 @@ out:
 static int ieee802154fake_remove(struct platform_device *pdev)
 {
 	struct net_device *dev = platform_get_drvdata(pdev);
+	struct xbee_priv *priv = netdev_priv(xbee_dev);
+
+	kfree(priv->rbuff);
+
 	unregister_netdev(dev);
 	return 0;
 }
@@ -601,7 +622,7 @@ static int n_xbee_open(struct tty_struct *tty) {
 
 
 	// Merge the two structures!!! THIS IS A NULL POINTER	
-	struct xbee_priv *priv = netdev_priv(xbee_dev);
+	//struct xbee_priv *priv = netdev_priv(xbee_dev);
 	
 	//printk(KERN_ALERT "OPEN CALLED\n");
 	
@@ -614,18 +635,18 @@ static int n_xbee_open(struct tty_struct *tty) {
 	
 	main_tty = tty;
 	printk(KERN_ALERT "Attached to a tty!\n\n");
-	
-	priv->rbuff = kmalloc(XBEE_MAXFRAME, GFP_KERNEL);
+		
+	/*priv->rbuff = kmalloc(XBEE_MAXFRAME, GFP_KERNEL);
 	priv->rcount = 0;
 	priv->frame_status = UNFRAMED;
-	priv->frame_len = 0;
+	priv->frame_len = 0;*/
 	
 	return 0;
 }
 
 static void n_xbee_close(struct tty_struct *tty) {
 	
-	struct xbee_priv *priv = netdev_priv(xbee_dev);
+	//struct xbee_priv *priv = netdev_priv(xbee_dev);
 	
 	printk(KERN_ALERT "CLOSE CALLED\n");
 
@@ -633,7 +654,7 @@ static void n_xbee_close(struct tty_struct *tty) {
 	
 	main_tty = NULL;
 	
-	kfree(priv->rbuff);
+	//kfree(priv->rbuff);
 	
 }
 
@@ -686,23 +707,23 @@ void xbee_rx(struct net_device *dev, unsigned char *data, int len) {
 
 	struct xbee_priv *priv = netdev_priv(dev);
 	struct sk_buff *skb;
-	struct iphdr *ih;
+	//struct iphdr *ih;
     int packet_stat;
 
-	skb = dev_alloc_skb(len + sizeof(struct udphdr) + sizeof(struct iphdr));
+	skb = dev_alloc_skb(len /*+ sizeof(struct udphdr) + sizeof(struct iphdr)*/);
 	if (!skb) {
 		if (printk_ratelimit())
 			printk(KERN_NOTICE "[NET] xbee rx: low on mem - packet dropped\n");
 		priv->stats.rx_dropped++;
 		return;
 	}
-	skb_reserve (skb, sizeof(struct iphdr) + sizeof(struct udphdr));
+	//skb_reserve (skb, sizeof(struct iphdr) + sizeof(struct udphdr));
 	
 	// Put all the data into a new socket buffer
 	memcpy(skb_put(skb, len), data, len);
 	
     // Add an IP header and pretend it's a broadcast packet
-    ih = (struct iphdr*)skb_push(skb, sizeof(struct iphdr));
+    /*ih = (struct iphdr*)skb_push(skb, sizeof(struct iphdr));
 	ih->version = 4;
 	ih->ihl = 5;
 	ih->tos = 0;
@@ -717,10 +738,11 @@ void xbee_rx(struct net_device *dev, unsigned char *data, int len) {
 	skb_reset_network_header(skb);
 	
 	ih->check = ip_fast_csum((unsigned char *)ih, ih->ihl);
-	
+	*/	
+
 	skb->dev = dev;
-	skb->protocol = ETH_P_IP;
-	skb->ip_summed = CHECKSUM_UNNECESSARY; // don't check it (does this make any difference?)
+	//skb->protocol = ETH_P_IP;
+	//skb->ip_summed = CHECKSUM_UNNECESSARY; // don't check it (does this make any difference?)
 	
 	packet_stat = netif_rx(skb);
 	
@@ -1024,6 +1046,7 @@ static __init int fake_init(void)
 
 static __exit void fake_exit(void)
 {
+	tty_unregister_ldisc(N_XBEE);
 	platform_driver_unregister(&ieee802154fake_driver);
 	platform_device_unregister(ieee802154fake_dev);
 }

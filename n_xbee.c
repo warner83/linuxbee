@@ -317,14 +317,14 @@ static int escape_into(char *dest, const void *srcarray, int len) {
 	
 	for(i=0; i<len; i++) {
 		char unesc = *(src + i);
-		if( unesc == 0x7D || unesc == 0x7E || unesc == 0x11 || unesc == 0x13) {
+		/*if( unesc == 0x7D || unesc == 0x7E || unesc == 0x11 || unesc == 0x13) {
 			dest[j] = 0x7D;
 			dest[j+1] = unesc ^ 0x20;
 			j+=2;
-		} else {
+		} else {*/
 			dest[j] = unesc;
 			j++;
-		}	
+		//}	
 	}
 	return j;
 }
@@ -715,6 +715,8 @@ struct tty_ldisc_ops n_xbee_ldisc = {
 
 void xbee_cleanup(void)
 {
+
+	tty_unregister_ldisc(N_XBEE);
 	
 	if (xbee_dev) {
 		unregister_netdev(xbee_dev);

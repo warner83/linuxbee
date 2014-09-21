@@ -6,7 +6,7 @@ XBEE_ADDRESS="10.0.0.0"
 XBEE_NETMASK="255.255.255.0"
 
 modprobe ieee802154
-modporbe 6lowpan
+modprobe 6lowpan
 insmod ${XBEE_DRIVER_PATH}/ieee802154_xbee.ko &&
 ip link add link hardwpan0 name lowpan0 type lowpan
 ip link set lowpan0 address de:ad:be:ef:ca:fe:ca:fe

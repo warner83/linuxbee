@@ -61,6 +61,8 @@ struct xbee_priv {
 #define FRAME_CHECKSUM	5	// Receiving the checksum byte
 	//The length of the frame being received (according to packet)	
 	unsigned short frame_len;
+
+	struct wpan_phy *phy;
 	
 	//Main read/write lock
 	spinlock_t lock;

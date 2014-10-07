@@ -7,7 +7,7 @@
 //Maximum possible size of serial frame (hopefully)
 #define XBEE_MAXFRAME (XBEE_DATA_MTU*2 + 16)
 
-#define N_XBEE 17
+#define N_XBEE 25 
 
 int pool_size = 8;
 

@@ -6,7 +6,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-#define N_XBEE 17
+#define N_XBEE 25 
 
 int main(int argc, char **argv) {
 

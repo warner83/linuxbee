@@ -151,6 +151,8 @@ static int fake_assoc_req(struct net_device *dev,
 	phy->current_page = page;
 	mutex_unlock(&phy->pib_lock);
 
+	printk(KERN_ALERT "Association request confirmed!\n");
+
 	/* We simply emulate it here */
 	return ieee802154_nl_assoc_confirm(dev, fake_get_short_addr(dev),
 			IEEE802154_SUCCESS);
@@ -302,7 +304,7 @@ static int ieee802154_fake_close(struct net_device *dev)
  */
 static void xbee_hw_tx(char *frame, int len, struct net_device *dev)
 {
-	
+
 	int i;
 	unsigned char checksum;
 	int actual;
@@ -335,8 +337,10 @@ static void xbee_hw_tx(char *frame, int len, struct net_device *dev)
 	if(main_tty != NULL) {
 			
 		//printk(KERN_ALERT "Setting DO_WRITE_WAKEUP\n");
-		main_tty->flags |= (1 << TTY_DO_WRITE_WAKEUP);
+		//main_tty->flags |= (1 << TTY_DO_WRITE_WAKEUP);
 		
+		set_bit(TTY_DO_WRITE_WAKEUP, &main_tty->flags);
+
 		printk(KERN_ALERT "Writing the data to tty...\n");
 
 		print_hex_dump(KERN_ALERT, "", DUMP_PREFIX_OFFSET, 16, 1, frame, len, 0);
@@ -501,6 +505,14 @@ static void ieee802154_fake_setup(struct net_device *dev)
 {
 	struct xbee_priv *priv;
 	
+    	/*
+        	* Then, initialize the priv field. This encloses the statistics
+        	* and a few private fields.
+    	*/
+    	priv = netdev_priv(dev);
+    	memset(priv, 0, sizeof(struct xbee_priv));
+    	spin_lock_init(&priv->lock);
+	
 	dev->addr_len		= IEEE802154_ADDR_LEN;
 	memset(dev->broadcast, 0xff, IEEE802154_ADDR_LEN);
 	dev->features		= NETIF_F_HW_CSUM;
@@ -512,13 +524,6 @@ static void ieee802154_fake_setup(struct net_device *dev)
 	dev->watchdog_timeo	= 0;
 	dev->destructor		= ieee802154_fake_destruct;
 	
-    /*
-        * Then, initialize the priv field. This encloses the statistics
-        * and a few private fields.
-    */
-    priv = netdev_priv(dev);
-    memset(priv, 0, sizeof(struct xbee_priv));
-    spin_lock_init(&priv->lock);
 }
 
 
@@ -604,7 +609,7 @@ static struct platform_driver ieee802154fake_driver = {
 	.probe = ieee802154fake_probe,
 	.remove = ieee802154fake_remove,
 	.driver = {
-			.name = "ieee802154hardmac",
+			.name = "ieee802154xbee",
 			.owner = THIS_MODULE,
 	},
 };
@@ -632,10 +637,19 @@ static int n_xbee_open(struct tty_struct *tty) {
 	
 	if (!try_module_get(THIS_MODULE))
 		return -ENODEV;
+
+	if (tty->ops->stop)
+		tty->ops->stop(tty);
 	
 	main_tty = tty;
 	printk(KERN_ALERT "Attached to a tty!\n\n");
-		
+	
+        tty_driver_flush_buffer(tty);
+        tty_ldisc_flush(tty);
+
+	// For kernels < 3.10 it needs to be set
+	tty->receive_room = 4096;
+	
 	/*priv->rbuff = kmalloc(XBEE_MAXFRAME, GFP_KERNEL);
 	priv->rcount = 0;
 	priv->frame_status = UNFRAMED;
@@ -650,21 +664,24 @@ static void n_xbee_close(struct tty_struct *tty) {
 	
 	printk(KERN_ALERT "CLOSE CALLED\n");
 
+        //tty_driver_flush_buffer(tty);
+	//tty_ldisc_flush(tty);
+	
 	module_put(THIS_MODULE);
 	
 	main_tty = NULL;
-	
+
 	//kfree(priv->rbuff);
 	
 }
 
 static void n_xbee_flush_buffer(struct tty_struct *tty) {
-	//printk(KERN_ALERT "FLUSH_BUFFER CALLED\n");
-
+	printk(KERN_ALERT "FLUSH_BUFFER CALLED\n");
+        tty_driver_flush_buffer(tty);
 }
 
 static ssize_t	n_xbee_chars_in_buffer(struct tty_struct *tty) {
-	//printk(KERN_ALERT "CHARS_IN_BUFFER CALLED\n");
+	printk(KERN_ALERT "CHARS_IN_BUFFER CALLED\n");
 
 	return 0;
 }
@@ -707,10 +724,13 @@ void xbee_rx(struct net_device *dev, unsigned char *data, int len) {
 
 	struct xbee_priv *priv = netdev_priv(dev);
 	struct sk_buff *skb;
+	struct ieee802154_mac_cb* cb;
+
 	//struct iphdr *ih;
-    int packet_stat;
+    	int packet_stat;
 
 	skb = dev_alloc_skb(len /*+ sizeof(struct udphdr) + sizeof(struct iphdr)*/);
+	
 	if (!skb) {
 		if (printk_ratelimit())
 			printk(KERN_NOTICE "[NET] xbee rx: low on mem - packet dropped\n");
@@ -722,8 +742,8 @@ void xbee_rx(struct net_device *dev, unsigned char *data, int len) {
 	// Put all the data into a new socket buffer
 	memcpy(skb_put(skb, len), data, len);
 	
-    // Add an IP header and pretend it's a broadcast packet
-    /*ih = (struct iphdr*)skb_push(skb, sizeof(struct iphdr));
+    	// Add an IP header and pretend it's a broadcast packet
+    	/*ih = (struct iphdr*)skb_push(skb, sizeof(struct iphdr));
 	ih->version = 4;
 	ih->ihl = 5;
 	ih->tos = 0;
@@ -741,8 +761,21 @@ void xbee_rx(struct net_device *dev, unsigned char *data, int len) {
 	*/	
 
 	skb->dev = dev;
-	//skb->protocol = ETH_P_IP;
-	//skb->ip_summed = CHECKSUM_UNNECESSARY; // don't check it (does this make any difference?)
+
+        //skb->protocol = htons(ETH_P_IPV6);
+        //skb->pkt_type = PACKET_HOST;
+	
+	skb->protocol = htons(ETH_P_IEEE802154);
+        skb_reset_mac_header(skb);
+
+	/*cb = mac_cb(skb);
+
+        cb->sa.addr_type = IEEE802154_ADDR_LONG;
+        cb->sa.pan_id = ieee802154_mlme_ops(dev)->get_pan_id(dev);
+
+        memcpy(&(cb->sa.hwaddr), 0x00000000L, 8);*/
+
+	skb->ip_summed = CHECKSUM_UNNECESSARY; // don't check it (does this make any difference?)
 	
 	packet_stat = netif_rx(skb);
 	
@@ -956,11 +989,37 @@ static void	n_xbee_receive_buf(struct tty_struct *tty, const unsigned char *cp, 
 
 static void	n_xbee_write_wakeup(struct tty_struct *tty) {
 
-	main_tty->flags &= ~(1 << TTY_DO_WRITE_WAKEUP);
+	printk(KERN_ALERT "[XBEE] write wakeup\n");
+
+	//main_tty->flags &= ~(1 << TTY_DO_WRITE_WAKEUP);
+
+	clear_bit(TTY_DO_WRITE_WAKEUP, &tty->flags);
 	
 	netif_wake_queue(xbee_dev);
 }
 
+
+/*
+ * Read on the tty.
+ * Unused
+ */
+static ssize_t
+n_xbee_read(struct tty_struct *tty, struct file *file,
+                 unsigned char __user *buf, size_t count)
+{
+        return -EAGAIN;
+}
+
+/*
+ * Write on the tty.
+ * Unused
+ */
+static ssize_t
+n_xbee_write(struct tty_struct *tty, struct file *file,
+                  const unsigned char *buf, size_t count)
+{
+        return -EAGAIN;
+}
 
 struct tty_ldisc_ops n_xbee_ldisc = {
     .owner           = THIS_MODULE,
@@ -970,8 +1029,8 @@ struct tty_ldisc_ops n_xbee_ldisc = {
 	.close           = n_xbee_close, /* TTY */
 	.flush_buffer    = n_xbee_flush_buffer, /* TTY */
 	.chars_in_buffer = n_xbee_chars_in_buffer, /* TTY */
-	.read            = NULL, /* TTY */
-	.write           = NULL, /* TTY */
+	.read            = n_xbee_read, /* TTY */
+	.write           = n_xbee_write, /* TTY */
 	.ioctl           = n_xbee_ioctl, /* TTY */
 	.set_termios     = NULL, /* FIXME no support for termios setting yet */
 	.poll            = n_xbee_poll,
@@ -1038,7 +1097,7 @@ out:
 static __init int fake_init(void)
 {
 	ieee802154fake_dev = platform_device_register_simple(
-			"ieee802154hardmac", -1, NULL, 0);
+			"ieee802154xbee", -1, NULL, 0);
 	xbee_init_module();
 
 	return platform_driver_register(&ieee802154fake_driver);
@@ -1054,3 +1113,5 @@ static __exit void fake_exit(void)
 module_init(fake_init);
 module_exit(fake_exit);
 MODULE_LICENSE("GPL");
+
+MODULE_ALIAS_LDISC(N_XBEE);

@@ -1,6 +1,8 @@
-obj-m := n_xbee.o ieee802154_xbee.o
+obj-m := n_xbee.o ieee802154_xbee.o fakelb.o fakehard.o
 
 KERNELDIR := /usr/src/linux-source-3.13.0
+
+#KERNELDIR := /home/carlo/Downloads/linux-3.16.3/
 
 PWD := $(shell pwd)
 

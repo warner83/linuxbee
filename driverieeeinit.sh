@@ -13,6 +13,7 @@ insmod ./ieee80214/ieee802154.ko
 #modprobe ieee802154
 
 insmod ${XBEE_DRIVER_PATH}/ieee802154_xbee.ko &&
+ip link set hardwpan0 address de:ad:be:af:ca:fe:ba:be
 ifconfig hardwpan0 up
 ip link add link hardwpan0 name lowpan0 type lowpan
 ip link set lowpan0 address a0:0:0:0:0:0:0:1

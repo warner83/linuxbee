@@ -5,7 +5,7 @@
 
 #define XBEE_DATA_MTU 72
 //Maximum possible size of serial frame (hopefully)
-#define XBEE_MAXFRAME (XBEE_DATA_MTU*2 + 16)
+#define XBEE_MAXFRAME (XBEE_DATA_MTU*2 + 32)
 
 #define N_XBEE 25 
 
@@ -59,6 +59,10 @@ struct xbee_priv {
 #define FRAME_DATA 	3	// Receiving the frame data
 #define FRAME_DATA_ESC  4
 #define FRAME_CHECKSUM	5	// Receiving the checksum byte
+
+	// Shell I escape the next one?
+	unsigned char escaped;
+
 	//The length of the frame being received (according to packet)	
 	unsigned short frame_len;
 

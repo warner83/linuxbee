@@ -388,10 +388,14 @@ static netdev_tx_t ieee802154_fake_xmit(struct sk_buff *skb,
 	printk(KERN_ALERT "[NET tx called, %d bytes in sk_buff, pkt type %hu, protocol %hu]\n", skb->len, skb->pkt_type, skb->protocol);
    
 	cb = mac_cb(skb);	
-	// TODO use cb to set dst address
  
-	header.address = cpu_to_be64(0x000000000000FFFF); // So far broadcast
-    	header.length = cpu_to_be16(skb->len + 10);
+	//header.address = cpu_to_be64(0x000000000000FFFF); // So far broadcast
+
+	memcpy(&header.address, &(cb->da.hwaddr), 8);
+	
+	printk(KERN_ALERT "DST addr %u\n", cb->da.hwaddr[0]);
+
+	header.length = cpu_to_be16(skb->len + 10);
     	datalen = skb->len;
 
 	// Allocate buffer to hold entire serial frame, including start byte and checksum
@@ -441,14 +445,14 @@ static int escape_into(char *dest, const void *srcarray, int len) {
 	for(i=0; i<len; i++) {
 		char unesc = *(src + i);
 		// We support API mode 1 (escape characters is for API 2, if we want to enable mode 2 we need to implement escape management at RX)
-		/*if( unesc == 0x7D || unesc == 0x7E || unesc == 0x11 || unesc == 0x13) {
+		if( unesc == 0x7D || unesc == 0x7E || unesc == 0x11 || unesc == 0x13) {
 			dest[j] = 0x7D;
 			dest[j+1] = unesc ^ 0x20;
 			j+=2;
-		} else {*/
+		} else {
 			dest[j] = unesc;
 			j++;
-		//}	
+		}	
 	}
 	return j;
 }
@@ -573,6 +577,7 @@ static int ieee802154fake_probe(struct platform_device *pdev)
         priv->rcount = 0;
         priv->frame_status = UNFRAMED;
         priv->frame_len = 0;
+	priv->escaped = 0;
 
 	xbee_dev = dev; // This should be removed in a future!
 
@@ -720,7 +725,7 @@ static char checksum_validate(unsigned char *buffer, int len, unsigned char chec
 /*
  * Encapsulate a packet with UDP/IP and hand off to upper networking layers
  */
-void xbee_rx(struct net_device *dev, unsigned char *data, int len) {
+void xbee_rx(struct net_device *dev, unsigned char *data, int len, unsigned char* addr) {
 
 	struct xbee_priv *priv = netdev_priv(dev);
 	struct sk_buff *skb;
@@ -768,12 +773,14 @@ void xbee_rx(struct net_device *dev, unsigned char *data, int len) {
 	skb->protocol = htons(ETH_P_IEEE802154);
         skb_reset_mac_header(skb);
 
-	/*cb = mac_cb(skb);
+	cb = mac_cb(skb);
 
         cb->sa.addr_type = IEEE802154_ADDR_LONG;
-        cb->sa.pan_id = ieee802154_mlme_ops(dev)->get_pan_id(dev);
+        cb->sa.pan_id = fake_get_pan_id(dev);
 
-        memcpy(&(cb->sa.hwaddr), 0x00000000L, 8);*/
+	//const unsigned short int fakeadd = 0x00000000L;
+
+        memcpy(&(cb->sa.hwaddr), addr, 8);
 
 	skb->ip_summed = CHECKSUM_UNNECESSARY; // don't check it (does this make any difference?)
 	
@@ -808,7 +815,7 @@ void xbee_receive_packet(struct net_device *dev, unsigned char *data, int len)
 	
 		case IEEE802154_RECEIVE_PACKET:
 			printk(KERN_ALERT "[XBEE] 802154 packet received \n");
-			xbee_rx(dev, (data + 11), len - 11);
+			xbee_rx(dev, (data + 11), len - 11, data + 1 );
                         goto out;
 	
 		case ZIGBEE_RECEIVE_PACKET:
@@ -818,7 +825,7 @@ void xbee_receive_packet(struct net_device *dev, unsigned char *data, int len)
 				goto out;
 			}
 
-			xbee_rx(dev, (data + 12), len - 12);
+			xbee_rx(dev, (data + 12), len - 12, data + 1 );
 			goto out;
 
 		case ZIGBEE_TRANSMIT_STATUS:
@@ -905,12 +912,6 @@ static void	n_xbee_receive_buf(struct tty_struct *tty, const unsigned char *cp, 
 		
 		temp = *cp++;
 
-		//Escape characters after 0x7D byte
-		if(temp == 0x7D) {
-			temp = (*cp++) ^ 0x20;
-			printk(KERN_ALERT "[XBEE] ESCAPED : %02X\n", temp );
-			//count--; // Escaped data does not count??
-		}
 		
 		//Start a new frame if 0x7E received, even if we seem to be in the middle of one
 		if(temp == 0x7E) {
@@ -921,7 +922,20 @@ static void	n_xbee_receive_buf(struct tty_struct *tty, const unsigned char *cp, 
 			continue;
 		}
 
-		
+		//Escape characters after 0x7D byte
+		if(temp == 0x7D) {
+			priv->escaped=1;
+			continue;
+		}
+
+		// The last one was an escaped char
+		if(priv->escaped){
+			temp = temp ^ 0x20;
+			printk(KERN_ALERT "[XBEE] ESCAPED : %02X\n", temp );
+			priv->escaped=0;
+		}
+
+	
 		switch(priv->frame_status) {
 
             		//FIXME: All the Xbee packets seem to have two extra bytes on the end. why...?
@@ -954,7 +968,7 @@ static void	n_xbee_receive_buf(struct tty_struct *tty, const unsigned char *cp, 
 				if(priv->rcount > XBEE_MAXFRAME || priv->rcount > priv->frame_len || priv->frame_len > XBEE_MAXFRAME) {
 					priv->rcount = 0;
 					priv->frame_status = UNFRAMED;
-					printk(KERN_ALERT "[XBEE] A frame got pwned!! : %lu errors\n", priv->stats.rx_dropped++);
+					printk(KERN_ALERT "[XBEE] A frame got pwned!! rcount %lu max %lu frame_len %lu : %lu errors\n",  priv->rcount, XBEE_MAXFRAME, priv->frame_len,priv->stats.rx_dropped++);
 				} 
 				break;
 				

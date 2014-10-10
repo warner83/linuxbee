@@ -90,7 +90,8 @@ static u16 fake_get_pan_id(const struct net_device *dev)
 {
 	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
-	return 0xabcd;
+	//return 0xabcd;
+	return 0xffff;
 }
 
 /**
@@ -395,8 +396,8 @@ static netdev_tx_t ieee802154_fake_xmit(struct sk_buff *skb,
 	
 	printk(KERN_ALERT "DST addr %u\n", cb->da.hwaddr[0]);
 
-	header.length = cpu_to_be16(skb->len + 10);
-    	datalen = skb->len;
+	header.length = cpu_to_be16(skb->len + 1 + 10);
+    	datalen = skb->len + 1;
 
 	// Allocate buffer to hold entire serial frame, including start byte and checksum
 	frame = kmalloc(sizeof(struct xbee_tx_header) + (2*datalen) + 2, GFP_KERNEL);
@@ -408,9 +409,9 @@ static netdev_tx_t ieee802154_fake_xmit(struct sk_buff *skb,
 	framelen = escape_into((frame + 1), &header, sizeof(header));
     
     	printk(KERN_ALERT "Adding data - length is %u\n", datalen);
-	framelen += escape_into((frame + framelen + 1), (skb->data), datalen);
+	framelen += escape_into((frame + framelen + 1 ), (skb->data), datalen );
 
-	framelen++; // Escape char at the beginning
+	framelen++; // Checksum char at the beginning
 	
 	/* save the timestamp */
 	dev->trans_start = jiffies; 
@@ -496,6 +497,29 @@ static const struct net_device_ops fake_ops = {
 	.ndo_set_mac_address	= ieee802154_fake_mac_addr,
 };
 
+static int fake_header_create(struct sk_buff *skb,
+                                   struct net_device *dev,
+                                   unsigned short type,
+                                   const void *_daddr,
+                                   const void *_saddr,
+                                   unsigned len)
+{
+	struct ieee802154_mac_cb* cb;
+
+	cb = mac_cb(skb);
+
+	memcpy(&(cb->da.hwaddr),_daddr, 8);	
+
+	printk(KERN_ALERT "Adding fake header\n");
+
+	return 0;
+}
+
+static struct header_ops fake_header_ops = {
+        .create         = fake_header_create,
+        //.parse          = mac802154_header_parse,
+};
+
 static void ieee802154_fake_destruct(struct net_device *dev)
 {
 	struct wpan_phy *phy = fake_to_phy(dev);
@@ -518,6 +542,8 @@ static void ieee802154_fake_setup(struct net_device *dev)
     	spin_lock_init(&priv->lock);
 	
 	dev->addr_len		= IEEE802154_ADDR_LEN;
+	
+	dev->header_ops         = &fake_header_ops;
 	memset(dev->broadcast, 0xff, IEEE802154_ADDR_LEN);
 	dev->features		= NETIF_F_HW_CSUM;
 	dev->needed_tailroom	= 2; /* FCS */

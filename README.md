@@ -6,7 +6,7 @@ Compatible with 6lowpan :)
 
 Fork of the original driver from https://github.com/robbles/xbee-driver
 
-So far it works only on the kernel 3.10, tested with Ubuntu 14.04LTS. 
+So far it works only on the kernel 3.13, tested with Ubuntu 14.04LTS. 
 
 USAGE:
 - Compile it

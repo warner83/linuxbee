@@ -1,4 +1,4 @@
-obj-m := n_xbee.o ieee802154_xbee.o fakelb.o fakehard.o
+obj-m := ieee802154_xbee.o
 
 KERNELDIR := /usr/src/linux-source-3.13.0
 

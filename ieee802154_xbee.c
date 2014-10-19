@@ -1,7 +1,7 @@
 /*
- * Sample driver for HardMAC IEEE 802.15.4 devices
+ * Linux XBEE driver, IEEE 802.15.4 version
  *
- * Copyright (C) 2009 Siemens AG
+ * Copyright (C) 2014 Carlo Vallati
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2
@@ -17,8 +17,10 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  *
  * Written by:
- * Dmitry Eremin-Solenikov <dmitry.baryshkov@siemens.com>
+ * Carlo Vallati <carlo.vallati@iet.unipi.it>
+ * Fork of the original xbee based driver from https://github.com/robbles/xbee-driver
  */
+
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
@@ -57,16 +59,16 @@
 static int escape_into(char *dest, const void *srcarray, int len);
 
 
-#include "n_xbee.h"
+#include "ieee802154_xbee.h"
 
-static struct wpan_phy *fake_to_phy(const struct net_device *dev)
+static struct wpan_phy *xbee_to_phy(const struct net_device *dev)
 {
 	struct xbee_priv *priv = netdev_priv(dev);
 	return priv->phy;
 }
 
 /**
- * fake_get_phy - Return a phy corresponding to this device.
+ * xbee_get_phy - Return a phy corresponding to this device.
  * @dev: The network device for which to return the wan-phy object
  *
  * This function returns a wpan-phy object corresponding to the passed
@@ -74,35 +76,35 @@ static struct wpan_phy *fake_to_phy(const struct net_device *dev)
  * so when the wpan-phy isn't necessary, you should drop the reference
  * via @wpan_phy_put() call.
  */
-static struct wpan_phy *fake_get_phy(const struct net_device *dev)
+static struct wpan_phy *xbee_get_phy(const struct net_device *dev)
 {
-	struct wpan_phy *phy = fake_to_phy(dev);
+	struct wpan_phy *phy = xbee_to_phy(dev);
 	return to_phy(get_device(&phy->dev));
 }
 
 /**
- * fake_get_pan_id - Retrieve the PAN ID of the device.
+ * xbee_get_pan_id - Retrieve the PAN ID of the device.
  * @dev: The network device to retrieve the PAN of.
  *
  * Return the ID of the PAN from the PIB.
  */
-static u16 fake_get_pan_id(const struct net_device *dev)
+static u16 xbee_get_pan_id(const struct net_device *dev)
 {
 	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
-	//return 0xabcd;
-	return 0xffff;
+	return 0xabcd;
+	//return 0xffff;
 }
 
 /**
- * fake_get_short_addr - Retrieve the short address of the device.
+ * xbee_get_short_addr - Retrieve the short address of the device.
  * @dev: The network device to retrieve the short address of.
  *
  * Returns the IEEE 802.15.4 short-form address cached for this
  * device. If the device has not yet had a short address assigned
  * then this should return 0xFFFF to indicate a lack of association.
  */
-static u16 fake_get_short_addr(const struct net_device *dev)
+static u16 xbee_get_short_addr(const struct net_device *dev)
 {
 	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
@@ -110,7 +112,7 @@ static u16 fake_get_short_addr(const struct net_device *dev)
 }
 
 /**
- * fake_get_dsn - Retrieve the DSN of the device.
+ * xbee_get_dsn - Retrieve the DSN of the device.
  * @dev: The network device to retrieve the DSN for.
  *
  * Returns the IEEE 802.15.4 DSN for the network device.
@@ -122,7 +124,7 @@ static u16 fake_get_short_addr(const struct net_device *dev)
  * Note: This is in section 7.2.1.2 of the IEEE 802.15.4-2006
  *       document.
  */
-static u8 fake_get_dsn(const struct net_device *dev)
+static u8 xbee_get_dsn(const struct net_device *dev)
 {
 	BUG_ON(dev->type != ARPHRD_IEEE802154);
 
@@ -130,7 +132,7 @@ static u8 fake_get_dsn(const struct net_device *dev)
 }
 
 /**
- * fake_assoc_req - Make an association request to the HW.
+ * xbee_assoc_req - Make an association request to the HW.
  * @dev: The network device which we are associating to a network.
  * @addr: The coordinator with which we wish to associate.
  * @channel: The channel on which to associate.
@@ -142,10 +144,10 @@ static u8 fake_get_dsn(const struct net_device *dev)
  * Note: This is in section 7.3.1 and 7.5.3.1 of the IEEE
  *       802.15.4-2006 document.
  */
-static int fake_assoc_req(struct net_device *dev,
+static int xbee_assoc_req(struct net_device *dev,
 		struct ieee802154_addr *addr, u8 channel, u8 page, u8 cap)
 {
-	struct wpan_phy *phy = fake_to_phy(dev);
+	struct wpan_phy *phy = xbee_to_phy(dev);
 
 	mutex_lock(&phy->pib_lock);
 	phy->current_channel = channel;
@@ -155,12 +157,12 @@ static int fake_assoc_req(struct net_device *dev,
 	printk(KERN_ALERT "Association request confirmed!\n");
 
 	/* We simply emulate it here */
-	return ieee802154_nl_assoc_confirm(dev, fake_get_short_addr(dev),
+	return ieee802154_nl_assoc_confirm(dev, xbee_get_short_addr(dev),
 			IEEE802154_SUCCESS);
 }
 
 /**
- * fake_assoc_resp - Send an association response to a device.
+ * xbee_assoc_resp - Send an association response to a device.
  * @dev: The network device on which to send the response.
  * @addr: The address of the device to respond to.
  * @short_addr: The assigned short address for the device (if any).
@@ -174,14 +176,14 @@ static int fake_assoc_req(struct net_device *dev,
  * Note: This is in section 7.3.2 and 7.5.3.1 of the IEEE
  *       802.15.4-2006 document.
  */
-static int fake_assoc_resp(struct net_device *dev,
+static int xbee_assoc_resp(struct net_device *dev,
 		struct ieee802154_addr *addr, u16 short_addr, u8 status)
 {
 	return 0;
 }
 
 /**
- * fake_disassoc_req - Disassociate a device from a network.
+ * xbee_disassoc_req - Disassociate a device from a network.
  * @dev: The network device on which we're disassociating a device.
  * @addr: The device to disassociate from the network.
  * @reason: The reason to give to the device for being disassociated.
@@ -192,14 +194,14 @@ static int fake_assoc_resp(struct net_device *dev,
  * Note: This is in section 7.5.3.2 of the IEEE 802.15.4-2006
  *       document, with the reason described in 7.3.3.2.
  */
-static int fake_disassoc_req(struct net_device *dev,
+static int xbee_disassoc_req(struct net_device *dev,
 		struct ieee802154_addr *addr, u8 reason)
 {
 	return ieee802154_nl_disassoc_confirm(dev, IEEE802154_SUCCESS);
 }
 
 /**
- * fake_start_req - Start an IEEE 802.15.4 PAN.
+ * xbee_start_req - Start an IEEE 802.15.4 PAN.
  * @dev: The network device on which to start the PAN.
  * @addr: The coordinator address to use when starting the PAN.
  * @channel: The channel on which to start the PAN.
@@ -217,12 +219,12 @@ static int fake_disassoc_req(struct net_device *dev,
  * Note: This is in section 7.5.2.3 of the IEEE 802.15.4-2006
  * document, with 7.3.8 describing coordinator realignment.
  */
-static int fake_start_req(struct net_device *dev, struct ieee802154_addr *addr,
+static int xbee_start_req(struct net_device *dev, struct ieee802154_addr *addr,
 				u8 channel, u8 page,
 				u8 bcn_ord, u8 sf_ord, u8 pan_coord, u8 blx,
 				u8 coord_realign)
 {
-	struct wpan_phy *phy = fake_to_phy(dev);
+	struct wpan_phy *phy = xbee_to_phy(dev);
 
 	mutex_lock(&phy->pib_lock);
 	phy->current_channel = channel;
@@ -235,7 +237,7 @@ static int fake_start_req(struct net_device *dev, struct ieee802154_addr *addr,
 }
 
 /**
- * fake_scan_req - Start a channel scan.
+ * xbee_scan_req - Start a channel scan.
  * @dev: The network device on which to perform a channel scan.
  * @type: The type of scan to perform.
  * @channels: The channel bitmask to scan.
@@ -249,7 +251,7 @@ static int fake_start_req(struct net_device *dev, struct ieee802154_addr *addr,
  *
  * Note: This is in section 7.5.2.1 of the IEEE 802.15.4-2006 document.
  */
-static int fake_scan_req(struct net_device *dev, u8 type, u32 channels,
+static int xbee_scan_req(struct net_device *dev, u8 type, u32 channels,
 		u8 page, u8 duration)
 {
 	u8 edl[27] = {};
@@ -258,41 +260,29 @@ static int fake_scan_req(struct net_device *dev, u8 type, u32 channels,
 			type == IEEE802154_MAC_SCAN_ED ? edl : NULL);
 }
 
-static struct ieee802154_mlme_ops fake_mlme = {
-	.assoc_req = fake_assoc_req,
-	.assoc_resp = fake_assoc_resp,
-	.disassoc_req = fake_disassoc_req,
-	.start_req = fake_start_req,
-	.scan_req = fake_scan_req,
+static struct ieee802154_mlme_ops xbee_mlme = {
+	.assoc_req = xbee_assoc_req,
+	.assoc_resp = xbee_assoc_resp,
+	.disassoc_req = xbee_disassoc_req,
+	.start_req = xbee_start_req,
+	.scan_req = xbee_scan_req,
 
-	.get_phy = fake_get_phy,
+	.get_phy = xbee_get_phy,
 
-	.get_pan_id = fake_get_pan_id,
-	.get_short_addr = fake_get_short_addr,
-	.get_dsn = fake_get_dsn,
+	.get_pan_id = xbee_get_pan_id,
+	.get_short_addr = xbee_get_short_addr,
+	.get_dsn = xbee_get_dsn,
 };
 
-static int ieee802154_fake_open(struct net_device *dev)
+static int ieee802154_xbee_open(struct net_device *dev)
 {
 	printk(KERN_ALERT "[NET open called ]\n");
-	
-	
-	/* request_region(), request_irq(), ....  (like fops->open) */
-
-	/* 
-	* Assign the hardware address of the board: use "\0XBEEx", where
-	* x is 0 or 1. The first byte is '\0' to avoid being a multicast
-	* address (the first byte of multicast addrs is odd).
-	*/
-    	//TODO: This should be set to the actual Xbee address somehow, even though it's never used
-	//memcpy(dev->dev_addr, "\0XBEE111", 8);
-	//memcpy(dev->perm_addr, "\0XBEE111", 8);
 
 	netif_start_queue(dev);
 	return 0;
 }
 
-static int ieee802154_fake_close(struct net_device *dev)
+static int ieee802154_xbee_close(struct net_device *dev)
 {
 	printk(KERN_ALERT "[NET release called ]\n");
 
@@ -336,9 +326,6 @@ static void xbee_hw_tx(char *frame, int len, struct net_device *dev)
 	
 	//Send the data to serial driver
 	if(main_tty != NULL) {
-			
-		//printk(KERN_ALERT "Setting DO_WRITE_WAKEUP\n");
-		//main_tty->flags |= (1 << TTY_DO_WRITE_WAKEUP);
 		
 		set_bit(TTY_DO_WRITE_WAKEUP, &main_tty->flags);
 
@@ -355,12 +342,11 @@ static void xbee_hw_tx(char *frame, int len, struct net_device *dev)
 		printk(KERN_ALERT "No tty is attached!\n");
 	}
 	
-	//printk(KERN_ALERT "Freeing the frame memory\n");
 	kfree(frame);
 }
 
 
-static netdev_tx_t ieee802154_fake_xmit(struct sk_buff *skb,
+static netdev_tx_t ieee802154_xbee_xmit(struct sk_buff *skb,
 					      struct net_device *dev)
 {
 	struct ieee802154_mac_cb* cb;
@@ -405,7 +391,7 @@ static netdev_tx_t ieee802154_fake_xmit(struct sk_buff *skb,
 	/* Assemble the frame */
     
 	/* Escaping the XBee header */
-    	printk(KERN_ALERT "Adding XBee header- length is %lu\n", sizeof(header) + 1);
+    	printk(KERN_ALERT "Adding XBEE header- length is %lu\n", sizeof(header) + 1);
 	framelen = escape_into((frame + 1), &header, sizeof(header));
     
     	printk(KERN_ALERT "Adding data - length is %u\n", datalen);
@@ -459,7 +445,7 @@ static int escape_into(char *dest, const void *srcarray, int len) {
 }
 
 
-static int ieee802154_fake_ioctl(struct net_device *dev, struct ifreq *ifr,
+static int ieee802154_xbee_ioctl(struct net_device *dev, struct ifreq *ifr,
 		int cmd)
 {
 	struct sockaddr_ieee802154 *sa =
@@ -469,8 +455,8 @@ static int ieee802154_fake_ioctl(struct net_device *dev, struct ifreq *ifr,
 	switch (cmd) {
 	case SIOCGIFADDR:
 		/* FIXME: fixed here, get from device IRL */
-		pan_id = fake_get_pan_id(dev);
-		short_addr = fake_get_short_addr(dev);
+		pan_id = xbee_get_pan_id(dev);
+		short_addr = xbee_get_short_addr(dev);
 		if (pan_id == IEEE802154_PANID_BROADCAST ||
 		    short_addr == IEEE802154_ADDR_BROADCAST)
 			return -EADDRNOTAVAIL;
@@ -484,20 +470,20 @@ static int ieee802154_fake_ioctl(struct net_device *dev, struct ifreq *ifr,
 	return -ENOIOCTLCMD;
 }
 
-static int ieee802154_fake_mac_addr(struct net_device *dev, void *p)
+static int ieee802154_xbee_mac_addr(struct net_device *dev, void *p)
 {
 	return -EBUSY; /* HW address is built into the device */
 }
 
-static const struct net_device_ops fake_ops = {
-	.ndo_open		= ieee802154_fake_open,
-	.ndo_stop		= ieee802154_fake_close,
-	.ndo_start_xmit		= ieee802154_fake_xmit,
-	.ndo_do_ioctl		= ieee802154_fake_ioctl,
-	.ndo_set_mac_address	= ieee802154_fake_mac_addr,
+static const struct net_device_ops xbee_ops = {
+	.ndo_open		= ieee802154_xbee_open,
+	.ndo_stop		= ieee802154_xbee_close,
+	.ndo_start_xmit		= ieee802154_xbee_xmit,
+	.ndo_do_ioctl		= ieee802154_xbee_ioctl,
+	.ndo_set_mac_address	= ieee802154_xbee_mac_addr,
 };
 
-static int fake_header_create(struct sk_buff *skb,
+static int xbee_header_create(struct sk_buff *skb,
                                    struct net_device *dev,
                                    unsigned short type,
                                    const void *_daddr,
@@ -510,26 +496,26 @@ static int fake_header_create(struct sk_buff *skb,
 
 	memcpy(&(cb->da.hwaddr),_daddr, 8);	
 
-	printk(KERN_ALERT "Adding fake header\n");
+	printk(KERN_ALERT "Adding xbee header\n");
 
 	return 0;
 }
 
-static struct header_ops fake_header_ops = {
-        .create         = fake_header_create,
+static struct header_ops xbee_header_ops = {
+        .create         = xbee_header_create,
         //.parse          = mac802154_header_parse,
 };
 
-static void ieee802154_fake_destruct(struct net_device *dev)
+static void ieee802154_xbee_destruct(struct net_device *dev)
 {
-	struct wpan_phy *phy = fake_to_phy(dev);
+	struct wpan_phy *phy = xbee_to_phy(dev);
 
 	wpan_phy_unregister(phy);
 	free_netdev(dev);
 	wpan_phy_free(phy);
 }
 
-static void ieee802154_fake_setup(struct net_device *dev)
+static void ieee802154_xbee_setup(struct net_device *dev)
 {
 	struct xbee_priv *priv;
 	
@@ -543,7 +529,7 @@ static void ieee802154_fake_setup(struct net_device *dev)
 	
 	dev->addr_len		= IEEE802154_ADDR_LEN;
 	
-	dev->header_ops         = &fake_header_ops;
+	dev->header_ops         = &xbee_header_ops;
 	memset(dev->broadcast, 0xff, IEEE802154_ADDR_LEN);
 	dev->features		= NETIF_F_HW_CSUM;
 	dev->needed_tailroom	= 2; /* FCS */
@@ -552,12 +538,12 @@ static void ieee802154_fake_setup(struct net_device *dev)
 	dev->type		= ARPHRD_IEEE802154;
 	dev->flags		= IFF_NOARP | IFF_BROADCAST;
 	dev->watchdog_timeo	= 0;
-	dev->destructor		= ieee802154_fake_destruct;
+	dev->destructor		= ieee802154_xbee_destruct;
 	
 }
 
 
-static int ieee802154fake_probe(struct platform_device *pdev)
+static int ieee802154xbee_probe(struct platform_device *pdev)
 {
 	struct net_device *dev;
 	struct xbee_priv *priv;
@@ -567,7 +553,7 @@ static int ieee802154fake_probe(struct platform_device *pdev)
 	if (!phy)
 		return -ENOMEM;
 
-	dev = alloc_netdev(sizeof(struct xbee_priv), "hardwpan%d", ieee802154_fake_setup);
+	dev = alloc_netdev(sizeof(struct xbee_priv), "hardwpan%d", ieee802154_xbee_setup);
 
 	if (!dev) {
 		wpan_phy_free(phy);
@@ -588,8 +574,8 @@ static int ieee802154fake_probe(struct platform_device *pdev)
 
 	phy->transmit_power = 0xbf;
 
-	dev->netdev_ops = &fake_ops;
-	dev->ml_priv = &fake_mlme;
+	dev->netdev_ops = &xbee_ops;
+	dev->ml_priv = &xbee_mlme;
 
 	priv = netdev_priv(dev);
 	priv->phy = phy;
@@ -623,7 +609,7 @@ out:
 	return err;
 }
 
-static int ieee802154fake_remove(struct platform_device *pdev)
+static int ieee802154xbee_remove(struct platform_device *pdev)
 {
 	struct net_device *dev = platform_get_drvdata(pdev);
 	struct xbee_priv *priv = netdev_priv(xbee_dev);
@@ -634,11 +620,11 @@ static int ieee802154fake_remove(struct platform_device *pdev)
 	return 0;
 }
 
-static struct platform_device *ieee802154fake_dev;
+static struct platform_device *ieee802154xbee_dev;
 
-static struct platform_driver ieee802154fake_driver = {
-	.probe = ieee802154fake_probe,
-	.remove = ieee802154fake_remove,
+static struct platform_driver ieee802154xbee_driver = {
+	.probe = ieee802154xbee_probe,
+	.remove = ieee802154xbee_remove,
 	.driver = {
 			.name = "ieee802154xbee",
 			.owner = THIS_MODULE,
@@ -655,12 +641,6 @@ static struct platform_driver ieee802154fake_driver = {
 * The following routines are called from above (user space/tty).
 */
 static int n_xbee_open(struct tty_struct *tty) {
-
-
-	// Merge the two structures!!! THIS IS A NULL POINTER	
-	//struct xbee_priv *priv = netdev_priv(xbee_dev);
-	
-	//printk(KERN_ALERT "OPEN CALLED\n");
 	
 	// Don't allow more than one tty to be attached
 	if( main_tty != NULL )
@@ -734,9 +714,6 @@ static unsigned int n_xbee_poll(struct tty_struct *tty, struct file *file, struc
 * The following routines are called from below (serial port driver).
 */
 
-
-
-
 static char checksum_validate(unsigned char *buffer, int len, unsigned char checksum) {
 	int i = 0;
 	while(len--) {
@@ -749,7 +726,7 @@ static char checksum_validate(unsigned char *buffer, int len, unsigned char chec
 }
 
 /*
- * Encapsulate a packet with UDP/IP and hand off to upper networking layers
+ * Create the skb for the upper layer
  */
 void xbee_rx(struct net_device *dev, unsigned char *data, int len, unsigned char* addr) {
 
@@ -757,10 +734,10 @@ void xbee_rx(struct net_device *dev, unsigned char *data, int len, unsigned char
 	struct sk_buff *skb;
 	struct ieee802154_mac_cb* cb;
 
-	//struct iphdr *ih;
+
     	int packet_stat;
 
-	skb = dev_alloc_skb(len /*+ sizeof(struct udphdr) + sizeof(struct iphdr)*/);
+	skb = dev_alloc_skb(len );
 	
 	if (!skb) {
 		if (printk_ratelimit())
@@ -768,29 +745,10 @@ void xbee_rx(struct net_device *dev, unsigned char *data, int len, unsigned char
 		priv->stats.rx_dropped++;
 		return;
 	}
-	//skb_reserve (skb, sizeof(struct iphdr) + sizeof(struct udphdr));
 	
 	// Put all the data into a new socket buffer
 	memcpy(skb_put(skb, len), data, len);
 	
-    	// Add an IP header and pretend it's a broadcast packet
-    	/*ih = (struct iphdr*)skb_push(skb, sizeof(struct iphdr));
-	ih->version = 4;
-	ih->ihl = 5;
-	ih->tos = 0;
-	ih->tot_len = htons(len + sizeof(struct iphdr));
-	ih->id = 555;
-	ih->frag_off = 0;
-	ih->ttl = 64;
-	ih->protocol = 17;
-	ih->check = 0x0000;
-	ih->saddr = 0x00000000L;
-	ih->daddr = 0xFFFFFFFFL;
-	skb_reset_network_header(skb);
-	
-	ih->check = ip_fast_csum((unsigned char *)ih, ih->ihl);
-	*/	
-
 	skb->dev = dev;
 
         //skb->protocol = htons(ETH_P_IPV6);
@@ -802,11 +760,9 @@ void xbee_rx(struct net_device *dev, unsigned char *data, int len, unsigned char
 	cb = mac_cb(skb);
 
         cb->sa.addr_type = IEEE802154_ADDR_LONG;
-        cb->sa.pan_id = fake_get_pan_id(dev);
+        cb->sa.pan_id = xbee_get_pan_id(dev);
 
-	//const unsigned short int fakeadd = 0x00000000L;
-
-        memcpy(&(cb->sa.hwaddr), addr, 8);
+	memcpy(&(cb->sa.hwaddr), addr, 8);
 
 	skb->ip_summed = CHECKSUM_UNNECESSARY; // don't check it (does this make any difference?)
 	
@@ -843,35 +799,27 @@ void xbee_receive_packet(struct net_device *dev, unsigned char *data, int len)
 			printk(KERN_ALERT "[XBEE] 802154 packet received \n");
 			xbee_rx(dev, (data + 11), len - 11, data + 1 );
                         goto out;
-	
-		case ZIGBEE_RECEIVE_PACKET:
-			printk(KERN_ALERT "[XBEE] Zigbee Receive Packet Frame received\n");
-			if(len<13) {
-				printk(KERN_ALERT "[XBEE] Packet too short to be a Receive Packet Frame!\n");
-				goto out;
-			}
 
-			xbee_rx(dev, (data + 12), len - 12, data + 1 );
-			goto out;
-
-		case ZIGBEE_TRANSMIT_STATUS:
-			//printk(KERN_ALERT "[XBEE] Zigbee Transmit Status Frame received\n");
-			if(len != 7) {
+		case IEEE802154_TRANSMIT_STATUS:
+			printk(KERN_ALERT "[XBEE] Zigbee Transmit Status Frame received\n");
+			if(len != 3) {
 				printk(KERN_ALERT "[XBEE] Packet is wrong length for a Transmit Status Packet!\n");
 				goto out;
 			}
 
-			if(data[5] == TRANSMIT_SUCCESS) {
+			if(data[2] == TRANSMIT_SUCCESS) {
 				printk(KERN_ALERT "[XBEE] Packet delivery reported as success!\n");
-                //TODO: report which packet by reading message (and notify super-paranoid drivers?)
+                		//TODO: report which packet by reading message (and notify super-paranoid drivers?)
 			} else {
-                if(data[5] == TRANSMIT_INVALID) {
-                    printk(KERN_ALERT "[XBEE] Transmit failed: invalid endpoint\n");
-                } else if(data[5] == TRANSMIT_ADDRNOTFOUND) {
-                    printk(KERN_ALERT "[XBEE] Transmit failed: address not found\n");
-                } else {
-                    printk(KERN_ALERT "[XBEE] Packet delivery failed with status %d\n", data[5]);
-                }
+                		if(data[2] == TRANSMIT_INVALID) {
+                			printk(KERN_ALERT "[XBEE] Transmit failed: invalid endpoint\n");
+		                } else if(data[2] == TRANSMIT_NO_ACK) {
+                			printk(KERN_ALERT "[XBEE] No ACK received, is ACK transmission set on the receiver?\n");
+				} else if(data[2] == TRANSMIT_ADDRNOTFOUND) {
+                			printk(KERN_ALERT "[XBEE] Transmit failed: address not found\n");
+		                } else {
+                			printk(KERN_ALERT "[XBEE] Packet delivery failed with status %d\n", data[2]);
+                		}
 			}
 
 			goto out;
@@ -897,20 +845,8 @@ void xbee_receive_packet(struct net_device *dev, unsigned char *data, int len)
 		case REMOTE_COMMAND_RESPONSE:
 			printk(KERN_ALERT "[XBEE] REMOTE_COMMAND_RESPONSE Frame received\n");
 			break;
-		case ZIGBEE_TRANSMIT_REQUEST:
-			printk(KERN_ALERT "[XBEE] ZIGBEE_TRANSMIT_REQUEST Frame received\n");
-			break;
 		case EXPLICIT_ADDRESSING_COMMAND_FRAME:
 			printk(KERN_ALERT "[XBEE] EXPLICIT_ADDRESSING_COMMAND_FRAME received\n");
-			break;
-		case ZIGBEE_EXPLICIT_RX_INDICATOR:
-			printk(KERN_ALERT "[XBEE] ZIGBEE_EXPLICIT_RX_INDICATOR Frame received\n");
-			break;
-		case ZIGBEE_IO_DATA_SAMPLE_RX_INDICATOR:
-			printk(KERN_ALERT "[XBEE] ZIGBEE_IO_DATA_SAMPLE_RX_INDICATOR Frame received\n");
-			break;
-		case XBEE_SENSOR_READ_INDICATOR:
-			printk(KERN_ALERT "[XBEE] XBEE_SENSOR_READ_INDICATOR Frame received\n");
 			break;
 		default:
 		printk(KERN_ALERT "[XBEE] UNKNOWN Frame Received : errors %lu\n", priv->stats.rx_dropped++);
@@ -964,9 +900,9 @@ static void	n_xbee_receive_buf(struct tty_struct *tty, const unsigned char *cp, 
 	
 		switch(priv->frame_status) {
 
-            		//FIXME: All the Xbee packets seem to have two extra bytes on the end. why...?
+
 			case UNFRAMED:
-				//printk(KERN_ALERT "Unframed data received: 0x%x\n", temp);
+				printk(KERN_ALERT "Unframed data received: 0x%x\n", temp);
 				break;
 				
 			case FRAME_LEN_HIGH:
@@ -994,7 +930,7 @@ static void	n_xbee_receive_buf(struct tty_struct *tty, const unsigned char *cp, 
 				if(priv->rcount > XBEE_MAXFRAME || priv->rcount > priv->frame_len || priv->frame_len > XBEE_MAXFRAME) {
 					priv->rcount = 0;
 					priv->frame_status = UNFRAMED;
-					printk(KERN_ALERT "[XBEE] A frame got pwned!! rcount %lu max %lu frame_len %lu : %lu errors\n",  priv->rcount, XBEE_MAXFRAME, priv->frame_len,priv->stats.rx_dropped++);
+					printk(KERN_ALERT "[XBEE] A frame got pwned!! rcount %d max %d frame_len %d : %lu errors\n",  priv->rcount, XBEE_MAXFRAME, priv->frame_len,priv->stats.rx_dropped++);
 				} 
 				break;
 				
@@ -1030,8 +966,6 @@ static void	n_xbee_receive_buf(struct tty_struct *tty, const unsigned char *cp, 
 static void	n_xbee_write_wakeup(struct tty_struct *tty) {
 
 	printk(KERN_ALERT "[XBEE] write wakeup\n");
-
-	//main_tty->flags &= ~(1 << TTY_DO_WRITE_WAKEUP);
 
 	clear_bit(TTY_DO_WRITE_WAKEUP, &tty->flags);
 	
@@ -1103,29 +1037,17 @@ int xbee_init_module(void)
 	int result, ret=0;
 
 	//Register the line discipline
-    // TODO: actually use a well-known discipline instead of over-riding
-    // a relatively pointless one (N_SLCAN?)
+
 	result = tty_register_ldisc(N_XBEE, &n_xbee_ldisc);
 	if(result) {
 		printk(KERN_ALERT "Registering the line discipline failed with error %d\n", result);
 		return result;
 	}
-	
-	/* Allocate the devices */
-	//xbee_dev = alloc_netdev(sizeof(struct xbee_priv), "xbee%d",
-	//			     xbee_init);
-	
-	
+		
 	if (xbee_dev == NULL)
 		goto out;
 
 	ret = -ENODEV;
-	
-	//if ((result = register_netdev(xbee_dev)))
-	//	printk("xbee: error %i registering device \"%s\"\n", result, xbee_dev->name);
-	//else
-	//	ret = 0;
-	
 	
 out:
 	if (ret) 
@@ -1134,24 +1056,24 @@ out:
 }
 
 
-static __init int fake_init(void)
+static __init int xbee_init(void)
 {
-	ieee802154fake_dev = platform_device_register_simple(
+	ieee802154xbee_dev = platform_device_register_simple(
 			"ieee802154xbee", -1, NULL, 0);
 	xbee_init_module();
 
-	return platform_driver_register(&ieee802154fake_driver);
+	return platform_driver_register(&ieee802154xbee_driver);
 }
 
-static __exit void fake_exit(void)
+static __exit void xbee_exit(void)
 {
 	tty_unregister_ldisc(N_XBEE);
-	platform_driver_unregister(&ieee802154fake_driver);
-	platform_device_unregister(ieee802154fake_dev);
+	platform_driver_unregister(&ieee802154xbee_driver);
+	platform_device_unregister(ieee802154xbee_dev);
 }
 
-module_init(fake_init);
-module_exit(fake_exit);
+module_init(xbee_init);
+module_exit(xbee_exit);
 MODULE_LICENSE("GPL");
 
 MODULE_ALIAS_LDISC(N_XBEE);

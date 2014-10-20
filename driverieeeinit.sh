@@ -2,12 +2,18 @@
 
 XBEE_DRIVER_PATH=$(dirname $0)
 
-#insmod ./6lowpan/6lowpan.ko
+rmmod btusb 
+rmmod bluetooth 
+rmmod 6lowpan_iphc 
 
-#insmod ./ieee80214/ieee802154.ko
+insmod ./ieee802154/ieee802154.ko
 
-modprobe 6lowpan
-modprobe ieee802154
+insmod ./ieee802154/6lowpan_iphc.ko
+
+insmod ./ieee802154/6lowpan.ko
+
+#modprobe 6lowpan
+#modprobe ieee802154
 
 insmod ${XBEE_DRIVER_PATH}/ieee802154_xbee.ko &&
 ifconfig hardwpan0 down

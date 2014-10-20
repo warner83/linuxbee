@@ -376,11 +376,11 @@ static netdev_tx_t ieee802154_xbee_xmit(struct sk_buff *skb,
    
 	cb = mac_cb(skb);	
  
-	//header.address = cpu_to_be64(0x000000000000FFFF); // So far broadcast
+	header.address = cpu_to_be64(0x000000000000FFFF); // So far broadcast
 
-	memcpy(&header.address, &(cb->dest.extended_addr), 8);
+	//header.address = cpu_to_be64p( (__be64*) &(cb->dest.extended_addr) );
 	
-	printk(KERN_ALERT "DST addr %llx\n", cb->dest.extended_addr);
+	printk(KERN_ALERT "MAC DST addr %llx\n", cb->dest.extended_addr);
 
 	header.length = cpu_to_be16(skb->len + 1 + 10);
     	datalen = skb->len + 1;
@@ -501,9 +501,26 @@ static int xbee_header_create(struct sk_buff *skb,
 	return 0;
 }
 
+static int
+xbee_header_parse(const struct sk_buff *skb, unsigned char *haddr)
+{
+        struct ieee802154_hdr hdr;
+        struct ieee802154_addr *addr = (struct ieee802154_addr *)haddr;
+ 
+	printk(KERN_ALERT "Parse header\n");
+
+        if (ieee802154_hdr_peek_addrs(skb, &hdr) < 0) {
+                 printk(KERN_ALERT "malformed packet\n");
+                 return 0;
+        }
+ 
+        *addr = hdr.source;
+        return sizeof(*addr);
+}
+
 static struct header_ops xbee_header_ops = {
         .create         = xbee_header_create,
-        //.parse          = mac802154_header_parse,
+        .parse          = xbee_header_parse,
 };
 
 static void ieee802154_xbee_destruct(struct net_device *dev)
@@ -762,7 +779,8 @@ void xbee_rx(struct net_device *dev, unsigned char *data, int len, unsigned char
         cb->source.mode = IEEE802154_ADDR_LONG;
         cb->source.pan_id = xbee_get_pan_id(dev);
 
-	memcpy(&(cb->source.extended_addr), addr, 8);
+	//memcpy(&(cb->source.extended_addr), addr, 8); 
+	cb->source.extended_addr = be64_to_cpup((__be64*)addr);
 
 	skb->ip_summed = CHECKSUM_UNNECESSARY; // don't check it (does this make any difference?)
 	
@@ -773,6 +791,8 @@ void xbee_rx(struct net_device *dev, unsigned char *data, int len, unsigned char
 	} else if(packet_stat == NET_RX_DROP) {
 		printk(KERN_ALERT "[NET] Packet was dropped!\n");
 	}
+	
+	printk(KERN_ALERT "MAC SRC addr %llx\n", cb->source.extended_addr);
 	
 	priv->stats.rx_packets++;
 	priv->stats.rx_bytes += len;

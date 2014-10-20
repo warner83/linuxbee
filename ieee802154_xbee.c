@@ -378,9 +378,9 @@ static netdev_tx_t ieee802154_xbee_xmit(struct sk_buff *skb,
  
 	//header.address = cpu_to_be64(0x000000000000FFFF); // So far broadcast
 
-	memcpy(&header.address, &(cb->da.hwaddr), 8);
+	memcpy(&header.address, &(cb->dest.extended_addr), 8);
 	
-	printk(KERN_ALERT "DST addr %u\n", cb->da.hwaddr[0]);
+	printk(KERN_ALERT "DST addr %llx\n", cb->dest.extended_addr);
 
 	header.length = cpu_to_be16(skb->len + 1 + 10);
     	datalen = skb->len + 1;
@@ -494,7 +494,7 @@ static int xbee_header_create(struct sk_buff *skb,
 
 	cb = mac_cb(skb);
 
-	memcpy(&(cb->da.hwaddr),_daddr, 8);	
+	memcpy(&(cb->dest.extended_addr),_daddr, 8);	
 
 	printk(KERN_ALERT "Adding xbee header\n");
 
@@ -759,10 +759,10 @@ void xbee_rx(struct net_device *dev, unsigned char *data, int len, unsigned char
 
 	cb = mac_cb(skb);
 
-        cb->sa.addr_type = IEEE802154_ADDR_LONG;
-        cb->sa.pan_id = xbee_get_pan_id(dev);
+        cb->source.mode = IEEE802154_ADDR_LONG;
+        cb->source.pan_id = xbee_get_pan_id(dev);
 
-	memcpy(&(cb->sa.hwaddr), addr, 8);
+	memcpy(&(cb->source.extended_addr), addr, 8);
 
 	skb->ip_summed = CHECKSUM_UNNECESSARY; // don't check it (does this make any difference?)
 	

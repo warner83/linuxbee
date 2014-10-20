@@ -21,7 +21,7 @@ ip link set lowpan0 up
 ip addr add fe80:0000:0000:0000:c30c:0000:0000:0001 dev lowpan0
 
 #ip -6 addr add aaaa::1/64 dev lowpan0
-ip -6 addr add aaaa::c30c:0:0:1 dev lowpan0
+ip -6 addr add aaaa::c30c:0:0:1/64 dev lowpan0
 
 killall ldisc_daemon #Just in case... 
 sleep 1

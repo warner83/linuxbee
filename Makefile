@@ -1,8 +1,6 @@
 obj-m := ieee802154_xbee.o
 
-KERNELDIR := /usr/src/linux-source-3.13.0
-
-#KERNELDIR := /home/carlo/Downloads/linux-3.16.3/
+KERNELDIR := /usr/src/linux-source-3.16.0
 
 PWD := $(shell pwd)
 

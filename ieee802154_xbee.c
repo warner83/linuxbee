@@ -503,7 +503,7 @@ static int xbee_header_create(struct sk_buff *skb,
 	return 0;
 }
 
-static int
+/*static int
 xbee_header_parse(const struct sk_buff *skb, unsigned char *haddr)
 {
         struct ieee802154_hdr hdr;
@@ -518,7 +518,7 @@ xbee_header_parse(const struct sk_buff *skb, unsigned char *haddr)
  
         *addr = hdr.source;
         return sizeof(*addr);
-}
+}*/
 
 static struct header_ops xbee_header_ops = {
         .create         = xbee_header_create,
@@ -805,6 +805,8 @@ void xbee_rx(struct net_device *dev, unsigned char *data, int len, unsigned char
 	
 	skb->ip_summed = CHECKSUM_UNNECESSARY; // don't check it (does this make any difference?)
 
+	skb->len = len;
+
 	packet_stat = netif_rx(skb);
 	
 	if(packet_stat == NET_RX_SUCCESS) {
@@ -814,10 +816,10 @@ void xbee_rx(struct net_device *dev, unsigned char *data, int len, unsigned char
 	}
 	
 	printk(KERN_ALERT "MAC SRC addr %llx\n", hdr.source.extended_addr);
-	
-	priv->stats.rx_packets++;
-	priv->stats.rx_bytes += len;
 
+	dev->stats.rx_packets++;
+        dev->stats.rx_bytes += skb->len;
+	
 }
 
 

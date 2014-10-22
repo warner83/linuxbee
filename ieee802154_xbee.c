@@ -452,6 +452,8 @@ static int ieee802154_xbee_ioctl(struct net_device *dev, struct ifreq *ifr,
 		(struct sockaddr_ieee802154 *)&ifr->ifr_addr;
 	u16 pan_id, short_addr;
 
+	printk(KERN_ALERT "Xbee ioctl called\n");
+
 	switch (cmd) {
 	case SIOCGIFADDR:
 		/* FIXME: fixed here, get from device IRL */
@@ -520,7 +522,7 @@ xbee_header_parse(const struct sk_buff *skb, unsigned char *haddr)
 
 static struct header_ops xbee_header_ops = {
         .create         = xbee_header_create,
-        .parse          = xbee_header_parse,
+        //.parse          = xbee_header_parse,
 };
 
 static void ieee802154_xbee_destruct(struct net_device *dev)
@@ -750,40 +752,59 @@ void xbee_rx(struct net_device *dev, unsigned char *data, int len, unsigned char
 	struct xbee_priv *priv = netdev_priv(dev);
 	struct sk_buff *skb;
 	struct ieee802154_mac_cb* cb;
-
-
+	struct ieee802154_hdr hdr;
+	int hlen;
     	int packet_stat;
 
-	skb = dev_alloc_skb(len );
-	
+	memset(&hdr.fc, 0, sizeof(hdr.fc));
+
+	skb = dev_alloc_skb(len+sizeof(struct ieee802154_hdr));
+
 	if (!skb) {
 		if (printk_ratelimit())
 			printk(KERN_NOTICE "[NET] xbee rx: low on mem - packet dropped\n");
 		priv->stats.rx_dropped++;
 		return;
 	}
-	
-	// Put all the data into a new socket buffer
-	memcpy(skb_put(skb, len), data, len);
-	
-	skb->dev = dev;
 
-        //skb->protocol = htons(ETH_P_IPV6);
-        //skb->pkt_type = PACKET_HOST;
-	
+	skb_reserve(skb, len);
+
+	skb->dev = dev;
+	//skb->pkt_type = PACKET_HOST;
 	skb->protocol = htons(ETH_P_IEEE802154);
-        skb_reset_mac_header(skb);
 
 	cb = mac_cb(skb);
 
-        cb->source.mode = IEEE802154_ADDR_LONG;
-        cb->source.pan_id = xbee_get_pan_id(dev);
+	hdr.source.mode = IEEE802154_ADDR_LONG;
+	hdr.source.extended_addr = be64_to_cpup((__be64*)addr);
+	hdr.source.pan_id = xbee_get_pan_id(dev);
 
-	//memcpy(&(cb->source.extended_addr), addr, 8); 
-	cb->source.extended_addr = be64_to_cpup((__be64*)addr);
+        //cb->source.mode = IEEE802154_ADDR_LONG;
+        //cb->source.pan_id = xbee_get_pan_id(dev);
 
-	skb->ip_summed = CHECKSUM_UNNECESSARY; // don't check it (does this make any difference?)
+	//cb->source.extended_addr = be64_to_cpup((__be64*)addr);
+
+	hdr.dest.mode = IEEE802154_ADDR_LONG;
+        hdr.dest.extended_addr = IEEE802154_ADDR_BROADCAST;
+        hdr.dest.pan_id = xbee_get_pan_id(dev);
+
+		
+	hlen = ieee802154_hdr_push(skb, &hdr);
+
+        if (hlen < 0)
+                return ;
 	
+	skb->mac_len = hlen;
+        skb_reset_mac_header(skb);
+
+        if (len > ieee802154_max_payload(&hdr))
+                return ;
+
+	// Put all the data into the socket buffer
+	memcpy(skb_push(skb, len), data, len);
+	
+	skb->ip_summed = CHECKSUM_UNNECESSARY; // don't check it (does this make any difference?)
+
 	packet_stat = netif_rx(skb);
 	
 	if(packet_stat == NET_RX_SUCCESS) {
@@ -792,7 +813,7 @@ void xbee_rx(struct net_device *dev, unsigned char *data, int len, unsigned char
 		printk(KERN_ALERT "[NET] Packet was dropped!\n");
 	}
 	
-	printk(KERN_ALERT "MAC SRC addr %llx\n", cb->source.extended_addr);
+	printk(KERN_ALERT "MAC SRC addr %llx\n", hdr.source.extended_addr);
 	
 	priv->stats.rx_packets++;
 	priv->stats.rx_bytes += len;

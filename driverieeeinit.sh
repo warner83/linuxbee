@@ -24,7 +24,7 @@ ip link set lowpan0 address 00:13:a2:00:40:b4:c5:65
 ip link set lowpan0 up
 
 #ip addr add fe80::0000:0:0:1/64 dev lowpan0
-ip addr add fe80:0000:0000:0000:c30c:0000:0000:0001 dev lowpan0
+ip addr add fe80:0000:0000:0000:c30c:0000:0000:0001/64 dev lowpan0
 
 #ip -6 addr add aaaa::1/64 dev lowpan0
 ip -6 addr add aaaa::c30c:0:0:1/64 dev lowpan0

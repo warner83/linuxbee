@@ -376,9 +376,9 @@ static netdev_tx_t ieee802154_xbee_xmit(struct sk_buff *skb,
    
 	cb = mac_cb(skb);	
  
-	header.address = cpu_to_be64(0x000000000000FFFF); // So far broadcast
+	//header.address = cpu_to_be64(0x000000000000FFFF); // So far broadcast
 
-	//header.address = cpu_to_be64p( (__be64*) &(cb->dest.extended_addr) );
+	header.address = cpu_to_be64p( (__be64*) &(cb->dest.extended_addr) );
 	
 	printk(KERN_ALERT "MAC DST addr %llx\n", cb->dest.extended_addr);
 
@@ -494,11 +494,17 @@ static int xbee_header_create(struct sk_buff *skb,
 {
 	struct ieee802154_mac_cb* cb;
 
+	struct ieee802154_addr* da = (struct ieee802154_addr*) _daddr;
+
 	cb = mac_cb(skb);
 
-	memcpy(&(cb->dest.extended_addr),_daddr, 8);	
+	memcpy(&(cb->dest.extended_addr),&(da->extended_addr), 8);	
+
+	printk(KERN_ALERT "MAC DST in header addr %llx\n", cb->dest.extended_addr);
 
 	printk(KERN_ALERT "Adding xbee header\n");
+
+	//print_hex_dump(KERN_ALERT, "", DUMP_PREFIX_OFFSET, 16, 1, (const char*) _saddr, 8, false);
 
 	return 0;
 }

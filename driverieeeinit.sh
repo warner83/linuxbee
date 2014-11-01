@@ -6,14 +6,15 @@ rmmod btusb
 rmmod bluetooth 
 rmmod 6lowpan_iphc 
 
-insmod ./ieee802154/ieee802154.ko
+#insmod ./ieee802154/ieee802154.ko
 
-insmod ./ieee802154/6lowpan_iphc.ko
+#insmod ./ieee802154/6lowpan_iphc.ko
 
-insmod ./ieee802154/6lowpan.ko
+#insmod ./ieee802154/6lowpan.ko
 
-#modprobe 6lowpan
-#modprobe ieee802154
+modprobe ieee802154
+modprobe 6lowpan_iphc
+modprobe 6lowpan
 
 insmod ${XBEE_DRIVER_PATH}/ieee802154_xbee.ko &&
 ifconfig hardwpan0 down

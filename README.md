@@ -6,7 +6,7 @@ Compatible with 6lowpan :)
 
 Fork of the original driver from https://github.com/robbles/xbee-driver
 
-So far it works only on the kernel 3.13, tested with Ubuntu 14.04LTS. 
+So far it works only on the kernel 3.16, tested with Ubuntu 14.10. 
 
 USAGE:
 - Compile it
@@ -14,11 +14,9 @@ USAGE:
 - Unload with driverieeeshutdown.sh
 
 Status:
-- Tested on Ubuntu 14.04 using two Xbee s1
-- 6lowpan implemented in this version of the linux kernel does not guarantee much interoperability with other devices (read http://sourceforge.net/p/linux-zigbee/mailman/message/30476463/)
+- Tested on Ubuntu 14.10 using two Xbee s1 and Zolertia Z1 running contiki-2.7
 
 Future development:
-- Port the whole thing to the last kernel with updated 6lowpan version
 - Implement others command through AT_COMMANDs
 
 

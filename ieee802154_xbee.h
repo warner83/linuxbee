@@ -2,6 +2,8 @@
 #define N_XBEE_H
 
 #include <linux/skbuff.h>
+#include <linux/completion.h>
+
 
 #define XBEE_DATA_MTU 72
 //Maximum possible size of serial frame (hopefully)
@@ -69,9 +71,18 @@ struct xbee_priv {
 	unsigned short frame_len;
 
 	struct wpan_phy *phy;
+
+	// Mutex 
+	struct mutex mutex;
+
+	// Completion for AT command 
+	struct completion complete;
 	
-	//Main read/write lock
+	// Main read/write lock
 	spinlock_t lock;
+
+	// Frame ID counter progress
+	uint8_t frame_id_counter;
 };
 
 //Outgoing packet data header (not including data)
@@ -81,6 +92,14 @@ struct xbee_tx_header {
 	u8 frame_id;
 	u64 address;
 	u8 options;
+} __attribute__((packed));
+
+// AT command header (not including value)
+struct xbee_command_header {
+	u16 length;
+	u8 api_id;
+	u8 frame_id;
+	u16 command;
 } __attribute__((packed));
 
 

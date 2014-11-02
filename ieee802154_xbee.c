@@ -58,6 +58,7 @@
 
 static int escape_into(char *dest, const void *srcarray, int len);
 
+static void send_atcommand(char* command, u8 value_len, void* value, struct net_device *dev);
 
 #include "ieee802154_xbee.h"
 
@@ -154,7 +155,9 @@ static int xbee_assoc_req(struct net_device *dev,
 	phy->current_page = page;
 	mutex_unlock(&phy->pib_lock);
 
-	printk(KERN_ALERT "Association request confirmed!\n");
+	send_atcommand("CH", 0, 0, dev );
+
+	printk(KERN_ALERT "Association request confirmed! channel %d \n", channel);
 
 	/* We simply emulate it here */
 	return ieee802154_nl_assoc_confirm(dev, xbee_get_short_addr(dev),
@@ -345,6 +348,53 @@ static void xbee_hw_tx(char *frame, int len, struct net_device *dev)
 	kfree(frame);
 }
 
+static void send_atcommand(char* command, u8 value_len, void* value, struct net_device *dev){
+	struct xbee_command_header header = {
+		.length = 0x00,
+		.api_id = 0x08,
+		.frame_id = 0x01,
+		.command = 0x00
+	};
+
+	int len, framelen, ret;
+	char* frame;
+
+	struct xbee_priv *priv = netdev_priv(dev);
+
+
+	memcpy( &header.command, command, 2 );
+
+	len = sizeof( struct xbee_command_header ) + value_len ; 
+
+	header.length = cpu_to_be16(len-2);
+	frame = kmalloc( 2*len + 4, GFP_KERNEL);
+
+	// Assembly the frame
+	framelen = escape_into((frame + 1), &header, len);
+
+	framelen += escape_into( (frame + framelen), value, value_len );
+
+	framelen+=2; // Checksum char at the end, delimiter at the beginning
+
+	printk(KERN_ALERT "[Sending AT command len %d value_len %d ]\n", framelen, value_len );
+
+	spin_lock(&priv->lock);
+	
+	xbee_hw_tx(frame, framelen, dev);
+	
+	spin_unlock(&priv->lock);	
+
+	//init_completion(&priv->complete);
+	
+	//ret = wait_for_completion_interruptible_timeout(
+	//	&priv->complete,
+	//	2 * HZ);
+
+	//if (ret == -ERESTARTSYS || ret == 0 ){
+		// TODO manage error
+	//}
+	
+}
 
 static netdev_tx_t ieee802154_xbee_xmit(struct sk_buff *skb,
 					      struct net_device *dev)
@@ -376,8 +426,6 @@ static netdev_tx_t ieee802154_xbee_xmit(struct sk_buff *skb,
    
 	cb = mac_cb(skb);	
  
-	//header.address = cpu_to_be64(0x000000000000FFFF); // So far broadcast
-
 	header.address = cpu_to_be64p( (__be64*) &(cb->dest.extended_addr) );
 	
 	printk(KERN_ALERT "MAC DST addr %llx\n", cb->dest.extended_addr);
@@ -873,6 +921,14 @@ void xbee_receive_packet(struct net_device *dev, unsigned char *data, int len)
 
 			goto out;
 
+		case AT_COMMAND_RESPONSE:
+			printk(KERN_ALERT "[XBEE] AT_COMMAND_RESPONSE Frame received\n");
+			// TODO add management completion
+			//complete(&priv->complete);
+			break;
+	
+
+
 		case NODE_IDENTIFICATION_INDICATOR:
 			printk(KERN_ALERT "[XBEE] NODE_IDENTIFICATION_INDICATOR Frame received\n");
 			break;
@@ -884,9 +940,6 @@ void xbee_receive_packet(struct net_device *dev, unsigned char *data, int len)
 			break;
 		case AT_COMMAND_QUEUE_PARAMETER_VALUE:
 			printk(KERN_ALERT "[XBEE] AT_COMMAND_QUEUE_PARAMETER_VALUE Frame received\n");
-			break;
-		case AT_COMMAND_RESPONSE:
-			printk(KERN_ALERT "[XBEE] AT_COMMAND_RESPONSE Frame received\n");
 			break;
 		case REMOTE_COMMAND_REQUEST:
 			printk(KERN_ALERT "[XBEE] REMOTE_COMMAND_REQUEST Frame received\n");
@@ -911,7 +964,9 @@ void xbee_receive_packet(struct net_device *dev, unsigned char *data, int len)
 /*
  * Called from the serial driver when new received data is ready
  */
-static void	n_xbee_receive_buf(struct tty_struct *tty, const unsigned char *cp, char *fp, int count) {
+static void	
+n_xbee_receive_buf(struct tty_struct *tty, const unsigned char *cp, char *fp, int count) {
+
 	
 	unsigned char temp;
 	struct xbee_priv *priv = netdev_priv(xbee_dev);
@@ -1012,7 +1067,8 @@ static void	n_xbee_receive_buf(struct tty_struct *tty, const unsigned char *cp, 
 	
 }
 
-static void	n_xbee_write_wakeup(struct tty_struct *tty) {
+static void	
+n_xbee_write_wakeup(struct tty_struct *tty) {
 
 	printk(KERN_ALERT "[XBEE] write wakeup\n");
 
@@ -1097,7 +1153,7 @@ int xbee_init_module(void)
 		goto out;
 
 	ret = -ENODEV;
-	
+
 out:
 	if (ret) 
 		xbee_cleanup();
